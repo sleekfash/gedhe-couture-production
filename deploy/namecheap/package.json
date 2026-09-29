@@ -1,0 +1,12 @@
+{
+  "name": "gedhe-couture-namecheap",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "scripts": {
+    "start": "node app.js"
+  }
+}
