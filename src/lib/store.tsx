@@ -21,14 +21,12 @@ import {
   type Currency,
   type Product,
 } from "@/data/catalog";
-
-export interface CartLine {
-  key: string;
-  productId: string;
-  sku: string;
-  option: string;
-  qty: number;
-}
+import {
+  CART_STORAGE_KEY,
+  parseStoredCart,
+  serializeCart,
+  type CartLine,
+} from "@/lib/cart-storage";
 
 export interface PricedLine extends CartLine {
   product: Product;
@@ -70,12 +68,47 @@ export function StoreProvider({
   const catalog = useMemo(() => products ?? [], [products]);
   const [filter, setFilter] = useState<Filter>("All");
   const [rawLines, setRawLines] = useState<CartLine[]>([]);
+  const [cartHydrated, setCartHydrated] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [currency, setCurrency] = useState<Currency>("NGN");
 
   // Region-aware default, resolved after hydration to avoid SSR mismatches.
   useEffect(() => {
     setCurrency(detectCurrency());
+  }, []);
+
+  // Restore the bag only in the browser. The hydration guard prevents the
+  // initial empty SSR state from overwriting an existing saved cart.
+  useEffect(() => {
+    try {
+      setRawLines(parseStoredCart(window.localStorage.getItem(CART_STORAGE_KEY)));
+    } catch {
+      // Storage can be unavailable in privacy modes; the in-memory cart still works.
+    } finally {
+      setCartHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!cartHydrated) return;
+    try {
+      if (rawLines.length === 0) {
+        window.localStorage.removeItem(CART_STORAGE_KEY);
+      } else {
+        window.localStorage.setItem(CART_STORAGE_KEY, serializeCart(rawLines));
+      }
+    } catch {
+      // Treat persistence as progressive enhancement when storage is blocked.
+    }
+  }, [cartHydrated, rawLines]);
+
+  // Keep separate storefront tabs consistent without forcing a page reload.
+  useEffect(() => {
+    function syncCart(event: StorageEvent) {
+      if (event.key === CART_STORAGE_KEY) setRawLines(parseStoredCart(event.newValue));
+    }
+    window.addEventListener("storage", syncCart);
+    return () => window.removeEventListener("storage", syncCart);
   }, []);
 
   const visibleProducts = useMemo(
