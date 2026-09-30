@@ -278,9 +278,9 @@ export interface PublicOrderStatus {
 export const getOrderByLookupToken = createServerFn({ method: "GET" })
   .validator((data: unknown) => z.object({ token: z.string().trim().uuid() }).parse(data))
   .handler(async ({ data }): Promise<PublicOrderStatus | null> => {
-    const { createPublicClient } = await import("@/lib/supabase-public.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const lookupTokenHash = await hashLookupToken(data.token);
-    const { data: row, error } = await createPublicClient()
+    const { data: row, error } = await supabaseAdmin
       .from("orders")
       .select(
         "reference, customer_phone, currency, subtotal, delivery_fee, total, volume, payment_provider, payment_status, fulfilment_status, items, lookup_expires_at, lookup_revoked_at",
@@ -318,10 +318,9 @@ export const getOrderByReference = getOrderByLookupToken;
 export const retryOrderPayment = createServerFn({ method: "POST" })
   .validator((data: unknown) => z.object({ token: z.string().trim().uuid() }).parse(data))
   .handler(async ({ data }): Promise<{ checkoutUrl: string }> => {
-    const { createPublicClient } = await import("@/lib/supabase-public.server");
-    const supabase = createPublicClient();
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const lookupTokenHash = await hashLookupToken(data.token);
-    const { data: order, error } = await supabase
+    const { data: order, error } = await supabaseAdmin
       .from("orders")
       .select(
         "id, reference, currency, total, customer_email, payment_status, payment_provider, payment_attempts",
@@ -411,7 +410,6 @@ export const retryOrderPayment = createServerFn({ method: "POST" })
       providerReference = payload.data.reference ?? paystackReference;
     }
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error: updateError } = await supabaseAdmin
       .from("orders")
       .update({
