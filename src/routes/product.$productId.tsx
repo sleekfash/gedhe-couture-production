@@ -7,17 +7,18 @@ import { CartPanel } from "@/components/cart-panel";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { buildSku, priceIn, resolveImage } from "@/data/catalog";
-import { getPublishedProduct } from "@/lib/catalog.functions";
+import { publishedProductsQueryOptions } from "@/lib/catalog.functions";
 import { StoreProvider, useStore } from "@/lib/store";
 
 export const Route = createFileRoute("/product/$productId")({
-  loader: async ({ params }) => {
-    const product = await getPublishedProduct({ data: { id: params.productId } });
+  loader: async ({ params, context }) => {
+    const products = await context.queryClient.ensureQueryData(publishedProductsQueryOptions());
+    const product = products.find((item) => item.id === params.productId);
     if (!product) throw notFound();
-    return product;
+    return { product, products };
   },
   head: ({ loaderData }) => {
-    const product = loaderData;
+    const product = loaderData?.product;
     const title = product ? `${product.name} — Gedhe Couture` : "Product — Gedhe Couture";
     const description = product?.description ?? "Shop Gedhe Couture.";
     return { meta: [{ title }, { name: "description", content: description }] };
@@ -26,9 +27,9 @@ export const Route = createFileRoute("/product/$productId")({
 });
 
 function ProductRoute() {
-  const product = Route.useLoaderData();
+  const { products } = Route.useLoaderData();
   return (
-    <StoreProvider products={[product]}>
+    <StoreProvider products={products}>
       <SiteHeader />
       <ProductDetail />
       <SiteFooter />
@@ -38,7 +39,7 @@ function ProductRoute() {
 }
 
 function ProductDetail() {
-  const product = Route.useLoaderData();
+  const { product } = Route.useLoaderData();
   const { addLine, openCart, currency, money } = useStore();
   const [option, setOption] = useState(product.options[0] ?? product.variant);
   const [qty, setQty] = useState(product.minQty);
