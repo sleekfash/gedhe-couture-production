@@ -22,10 +22,15 @@ Useful checks:
 ```sh
 npm test
 npm run typecheck
+npm run lint
 npm run build
 npm run build:vercel
 npm run build:cpanel
 ```
+
+Use Node.js 22 for local development and deployment. GitHub Actions runs the
+test, typecheck, lint, and Vercel build commands as independent checks so one
+failure does not hide the result of the others.
 
 Never commit `.env` or service-role/payment secrets.
 

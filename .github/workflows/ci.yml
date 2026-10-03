@@ -4,19 +4,41 @@ on:
   push:
     branches: ["main"]
   pull_request:
+    branches: ["main"]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Test
+            command: npm test
+          - name: Typecheck
+            command: npm run typecheck
+          - name: Lint
+            command: npm run lint
+          - name: Vercel build
+            command: npm run build:vercel
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Use Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -24,14 +46,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run payment and security tests
-        run: npm test
-
-      - name: Type-check
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Verify Vercel production build
-        run: npm run build:vercel
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.command }}

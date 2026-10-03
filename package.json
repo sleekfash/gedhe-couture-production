@@ -20,7 +20,7 @@
     "format": "prettier --write ."
   },
   "engines": {
-    "node": ">=22 <25"
+    "node": "22.x"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

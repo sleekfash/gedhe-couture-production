@@ -7,7 +7,6 @@ import { SiteHeader } from "@/components/site-header";
 import { Hero } from "@/components/hero";
 import { Catalog } from "@/components/catalog";
 import { AsoebiNote } from "@/components/asoebi-note";
-import { Verticals } from "@/components/verticals";
 import { CartPanel } from "@/components/cart-panel";
 import { SiteFooter } from "@/components/site-footer";
 
@@ -38,7 +37,6 @@ function Index() {
       <SiteHeader />
       <main>
         <Hero />
-        <Verticals />
         <Catalog />
         <AsoebiNote />
       </main>

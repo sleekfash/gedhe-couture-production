@@ -4,7 +4,8 @@ Production domain: `https://gedhecouture.com`
 
 ## Deployment target
 
-- Runtime: Vercel Node.js serverless output (currently generated as Node.js 24)
+- Runtime: Vercel Node.js serverless output; Git-based builds use Node.js 22
+  because `package.json` pins the major version
 - Build command: `npm run build:vercel`
 - Framework preset: Other
 - Output: Nitro Build Output API in `.vercel/output`
@@ -12,6 +13,11 @@ Production domain: `https://gedhecouture.com`
 The repository's `vercel.json` selects the dedicated Vercel build. The default
 build remains available for the ChatGPT Sites deployment, and `build:cpanel`
 remains available for the Namecheap fallback.
+
+Build any prebuilt release output under Node.js 22. Nitro records the builder's
+Node major in locally generated Vercel output, so an artifact built under a
+different local runtime is not the release artifact even when compilation
+succeeds.
 
 ## Vercel environment variables
 
