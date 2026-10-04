@@ -151,50 +151,23 @@ export const updateAdminOrder = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await requireAdmin(context);
-    const { data: current, error: currentError } = await context.supabase
-      .from("orders")
-      .select("id, reference, fulfilment_status, admin_notes")
-      .eq("id", data.id)
-      .single();
-    if (currentError || !current) throw new Error("Order not found.");
-
-    if (data.fulfilment_status && data.fulfilment_status !== current.fulfilment_status) {
-      const allowed: Record<string, string[]> = {
-        new: ["confirmed", "cancelled"],
-        confirmed: ["packed", "cancelled"],
-        packed: ["dispatched", "cancelled"],
-        dispatched: ["delivered", "cancelled"],
-        delivered: [],
-        cancelled: [],
-      };
-      if (!allowed[current.fulfilment_status]?.includes(data.fulfilment_status))
-        throw new Error("That fulfilment transition is not allowed.");
-    }
-
-    const update: { fulfilment_status?: string; admin_notes?: string } = {};
-    if (data.fulfilment_status) update.fulfilment_status = data.fulfilment_status;
-    if (data.admin_notes !== undefined) update.admin_notes = data.admin_notes;
-    const { error } = await context.supabase.from("orders").update(update).eq("id", data.id);
-    if (error) throw new Error("Could not update the order.");
-
-    if (data.fulfilment_status && data.fulfilment_status !== current.fulfilment_status) {
-      await context.supabase.from("order_audit_events").insert({
-        order_id: data.id,
-        order_reference: current.reference,
-        actor_user_id: context.userId,
-        event_type: "fulfilment_status_changed",
-        from_value: current.fulfilment_status,
-        to_value: data.fulfilment_status,
-      });
-    }
-    if (data.admin_notes !== undefined && data.admin_notes !== current.admin_notes) {
-      await context.supabase.from("order_audit_events").insert({
-        order_id: data.id,
-        order_reference: current.reference,
-        actor_user_id: context.userId,
-        event_type: "admin_note_updated",
-        note: data.admin_notes,
-      });
+    // Browser roles cannot write orders or audit events. Keep the service key
+    // server-only and derive the actor from verified authentication, never input.
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.rpc("update_admin_order", {
+      p_order_id: data.id,
+      p_actor_user_id: context.userId,
+      p_fulfilment_status: data.fulfilment_status ?? null,
+      p_admin_notes: data.admin_notes ?? null,
+    });
+    if (error) {
+      if (error.code === "42501") throw new Error("Forbidden");
+      if (error.code === "P0002") throw new Error("Order not found.");
+      if (error.code === "22023") throw new Error(error.message);
+      // Keep database internals out of the browser while retaining a diagnostic
+      // code in server logs. The RPC rolls back the update if auditing fails.
+      console.error("Admin order update failed", { code: error.code });
+      throw new Error("Could not update the order. Please retry or contact support.");
     }
     return { ok: true };
   });
