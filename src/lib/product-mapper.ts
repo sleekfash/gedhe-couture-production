@@ -24,15 +24,17 @@ export interface ProductRow {
 
 function toTiers(value: unknown): VolumeTier[] {
   if (!Array.isArray(value)) return [];
-  return value.map((raw) => {
-    const t = raw as Record<string, unknown>;
-    return {
-      minQty: Number(t["minQty"] ?? 1),
-      label: String(t["label"] ?? ""),
-      unitPriceNgn: Number(t["unitPriceNgn"] ?? 0),
-      unitPriceGbp: Number(t["unitPriceGbp"] ?? 0),
-    };
-  });
+  return value
+    .map((raw) => {
+      const t = raw as Record<string, unknown>;
+      return {
+        minQty: Number(t["minQty"] ?? 1),
+        label: String(t["label"] ?? ""),
+        unitPriceNgn: Number(t["unitPriceNgn"] ?? 0),
+        unitPriceGbp: Number(t["unitPriceGbp"] ?? 0),
+      };
+    })
+    .sort((a, b) => a.minQty - b.minQty);
 }
 
 function toGallery(value: unknown, fallback: string): { src: string; caption: string }[] {

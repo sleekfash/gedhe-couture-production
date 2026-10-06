@@ -18,9 +18,9 @@ export const listPublishedProducts = createServerFn({ method: "GET" }).handler(
 
     if (error) {
       console.error("listPublishedProducts failed", error);
-      return [];
+      throw new Error("The catalog is temporarily unavailable. Please try again.");
     }
-    return (data as unknown as ProductRow[]).map(mapProduct);
+    return withStock((data as unknown as ProductRow[]).map(mapProduct));
   },
 );
 
@@ -40,6 +40,20 @@ export const getPublishedProduct = createServerFn({ method: "POST" })
       .eq("id", data.id)
       .eq("published", true)
       .maybeSingle();
-    if (error || !row) return null;
-    return mapProduct(row as unknown as ProductRow);
+    if (error) throw new Error("Product details are temporarily unavailable.");
+    if (!row) return null;
+    return (await withStock([mapProduct(row as unknown as ProductRow)]))[0] ?? null;
   });
+
+async function withStock(products: Product[]): Promise<Product[]> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin.rpc("product_stock_availability", {});
+  if (error) throw new Error("Product availability is temporarily unavailable.");
+  const rows = data as unknown as { product_id: string; option: string; available: number }[];
+  return products.map((p) => ({
+    ...p,
+    inventory: Object.fromEntries(
+      rows.filter((r) => r.product_id === p.id).map((r) => [r.option, Number(r.available)]),
+    ),
+  }));
+}

@@ -41,6 +41,7 @@ export interface Product {
   gallery: { src: string; caption: string }[];
   pattern: string;
   options: string[];
+  inventory?: Record<string, number>;
   optionLabel: string;
   minQty: number;
   volumeTiers: VolumeTier[];

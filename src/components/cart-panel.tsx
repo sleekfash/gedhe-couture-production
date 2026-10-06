@@ -3,7 +3,7 @@
  * 1. Product Overview  2. Order Routing  3. Payment (Stripe / Paystack / WhatsApp)
  * Totals shown here are recomputed server-side before any payment is created.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -85,6 +85,11 @@ export function CartPanel() {
     money,
   } = useStore();
   const checkout = useServerFn(startCheckout);
+  const pendingSubmission = useRef<{
+    fingerprint: string;
+    requestId: string;
+    lookupToken: string;
+  } | null>(null);
 
   const [step, setStep] = useState(0);
   const [payWithCard, setPayWithCard] = useState(true);
@@ -124,8 +129,50 @@ export function CartPanel() {
     if (busy) return;
     setBusy(true);
     try {
+      const details = {
+        currency,
+        provider,
+        customer: {
+          name: routing.name.trim(),
+          phone: routing.phone.trim(),
+          email: routing.email.trim(),
+          city: routing.city.trim(),
+          address: routing.address.trim(),
+          notes: routing.notes.trim(),
+        },
+        items: lines.map((l) => ({ productId: l.product.id, option: l.option, qty: l.qty })),
+      };
+      const fingerprint = Array.from(
+        new Uint8Array(
+          await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(details))),
+        ),
+        (b) => b.toString(16).padStart(2, "0"),
+      ).join("");
+      let submission =
+        pendingSubmission.current?.fingerprint === fingerprint
+          ? pendingSubmission.current
+          : {
+              fingerprint,
+              requestId: crypto.randomUUID(),
+              lookupToken: crypto.randomUUID(),
+            };
+      try {
+        const prior = JSON.parse(localStorage.getItem("gedhe-checkout-request") ?? "null");
+        if (
+          prior?.fingerprint === fingerprint &&
+          typeof prior.requestId === "string" &&
+          typeof prior.lookupToken === "string"
+        )
+          submission = prior;
+        localStorage.setItem("gedhe-checkout-request", JSON.stringify(submission));
+      } catch {
+        /* in-memory fallback */
+      }
+      pendingSubmission.current = submission;
       const result = await checkout({
         data: {
+          requestId: submission.requestId,
+          lookupToken: submission.lookupToken,
           currency,
           provider,
           customer: {
@@ -153,6 +200,12 @@ export function CartPanel() {
       setPlacedProvider(provider);
       setPlaced(result);
       clearCart();
+      pendingSubmission.current = null;
+      try {
+        localStorage.removeItem("gedhe-checkout-request");
+      } catch {
+        /* storage unavailable */
+      }
       toast.success("Order routed to the atelier", {
         description: "A stylist confirms your pack shortly.",
       });
@@ -200,7 +253,7 @@ export function CartPanel() {
             )}
             <div className="min-w-0 text-center">
               <p className="truncate font-display text-lg leading-none tracking-tight">
-                {placed ? "Order Confirmed" : STEPS[step]}
+                {placed ? "Order received" : STEPS[step]}
               </p>
               <p className="mt-1 text-eyebrow text-muted-foreground">
                 {placed ? "Thank you" : `Step ${step + 1} of 3 · ${volume} items`}

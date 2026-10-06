@@ -21,7 +21,19 @@ export const Route = createFileRoute("/product/$productId")({
     const product = loaderData?.product;
     const title = product ? `${product.name} — Gedhe Couture` : "Product — Gedhe Couture";
     const description = product?.description ?? "Shop Gedhe Couture.";
-    return { meta: [{ title }, { name: "description", content: description }] };
+    const url = product
+      ? `https://gedhe-couture-production.vercel.app/product/${product.id}`
+      : undefined;
+    return {
+      meta: [
+        { title },
+        { name: "description", content: description },
+        { property: "og:title", content: title },
+        { property: "og:description", content: description },
+        { property: "og:type", content: "product" },
+      ],
+      links: url ? [{ rel: "canonical", href: url }] : [],
+    };
   },
   component: ProductRoute,
 });
@@ -45,6 +57,8 @@ function ProductDetail() {
   const [qty, setQty] = useState(product.minQty);
   const [frame, setFrame] = useState(0);
   const [added, setAdded] = useState(false);
+  const available = product.inventory?.[option];
+  const stockUnavailable = available !== undefined && qty > available;
   const step = product.minQty >= 10 ? 5 : 1;
   const unitPrice = priceIn(product, qty, currency);
   const gallery = product.gallery.length
@@ -52,7 +66,10 @@ function ProductDetail() {
     : [{ src: product.image, caption: product.name }];
 
   function add() {
-    addLine(product, option, qty);
+    if (!addLine(product, option, qty)) {
+      toast.error("Check the option and available quantity in your bag.");
+      return;
+    }
     setAdded(true);
     window.setTimeout(() => setAdded(false), 1400);
     toast.success(`${product.name} added`, {
@@ -159,10 +176,13 @@ function ProductDetail() {
 
             <button
               type="button"
+              disabled={stockUnavailable}
               onClick={add}
               className={`mt-6 flex w-full items-center justify-center gap-2 rounded-full px-6 py-4 text-xs font-bold uppercase tracking-[0.2em] ${added ? "bg-success text-linen" : "bg-charcoal text-linen hover:bg-charcoal-deep"}`}
             >
-              {added ? (
+              {stockUnavailable ? (
+                "Insufficient stock for this quantity"
+              ) : added ? (
                 <>
                   <Check className="h-4 w-4" /> Added to bag
                 </>
@@ -173,7 +193,8 @@ function ProductDetail() {
               )}
             </button>
             <p className="mt-3 text-center text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-              SKU {buildSku(product, option)}
+              {available !== undefined && <span>{available} available · </span>}SKU{" "}
+              {buildSku(product, option)}
             </p>
           </section>
         </div>

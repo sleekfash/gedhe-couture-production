@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -21,6 +21,7 @@ import {
   retryOrderPayment,
   type PublicOrderStatus,
 } from "@/lib/checkout.functions";
+import { CART_STORAGE_KEY, parseStoredCart } from "@/lib/cart-storage";
 import { BRAND, formatMoney } from "@/data/catalog";
 
 const TITLE = "Order status — Gedhe Couture";
@@ -30,6 +31,8 @@ export const Route = createFileRoute("/order/$token")({
   loader: ({ params }) => getOrderByLookupToken({ data: { token: params.token } }),
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
+      { name: "referrer", content: "no-referrer" },
       { title: TITLE },
       { name: "description", content: DESCRIPTION },
       { property: "og:title", content: TITLE },
@@ -40,7 +43,13 @@ export const Route = createFileRoute("/order/$token")({
   }),
   errorComponent: () => (
     <StatusShell>
-      <UnknownOrder />
+      <div className="mt-12 border p-8 text-center">
+        <h1 className="font-display text-3xl">Order status temporarily unavailable</h1>
+        <p className="mt-3">Please refresh this page. Your saved order has not been removed.</p>
+        <Button className="mt-5" onClick={() => window.location.reload()}>
+          Refresh status
+        </Button>
+      </div>
     </StatusShell>
   ),
   notFoundComponent: () => (
@@ -86,6 +95,26 @@ function UnknownOrder() {
 function OrderStatusPage() {
   const order = Route.useLoaderData();
   const { token } = Route.useParams();
+  useEffect(() => {
+    if (order?.payment_status !== "paid") return;
+    try {
+      const submission = JSON.parse(localStorage.getItem("gedhe-checkout-request") ?? "null");
+      if (submission?.lookupToken !== token) return;
+      const cart = parseStoredCart(localStorage.getItem(CART_STORAGE_KEY));
+      const items = order.items as ((typeof order.items)[number] & { productId?: string })[];
+      const matches =
+        cart.length === items.length &&
+        cart.every((l) =>
+          items.some(
+            (i) => i.productId === l.productId && i.option === l.option && i.qty === l.qty,
+          ),
+        );
+      if (matches) localStorage.removeItem(CART_STORAGE_KEY);
+      localStorage.removeItem("gedhe-checkout-request");
+    } catch {
+      /* Preserve the bag if storage is unavailable. */
+    }
+  }, [order, token]);
   return (
     <StatusShell>
       {order ? <OrderStatus order={order} token={token} /> : <UnknownOrder />}
@@ -124,6 +153,8 @@ function OrderStatus({ order, token }: { order: PublicOrderStatus; token: string
   const isWhatsAppOrder = order.payment_provider === "whatsapp";
   const canRetry =
     !paid &&
+    order.payment_status !== "refunded" &&
+    order.fulfilment_status !== "cancelled" &&
     !isWhatsAppOrder &&
     (order.payment_provider === "stripe" || order.payment_provider === "paystack");
   const copy = STATE_COPY[order.payment_status] ?? STATE_COPY["pending"]!;
@@ -172,7 +203,7 @@ function OrderStatus({ order, token }: { order: PublicOrderStatus; token: string
             )}
             <div>
               <p className="font-semibold">
-                {isWhatsAppOrder && !paid ? "Settled with the atelier" : copy.title}
+                {isWhatsAppOrder && !paid ? "Awaiting atelier confirmation" : copy.title}
               </p>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {isWhatsAppOrder && !paid
