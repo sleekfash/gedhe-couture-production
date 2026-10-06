@@ -50,7 +50,7 @@ interface StoreValue {
   cartOpen: boolean;
   openCart: () => void;
   closeCart: () => void;
-  addLine: (product: Product, option: string, qty: number) => void;
+  addLine: (product: Product, option: string, qty: number) => boolean;
   updateQty: (key: string, qty: number) => void;
   removeLine: (key: string) => void;
   clearCart: () => void;
@@ -70,11 +70,16 @@ export function StoreProvider({
   const [rawLines, setRawLines] = useState<CartLine[]>([]);
   const [cartHydrated, setCartHydrated] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
-  const [currency, setCurrency] = useState<Currency>("NGN");
+  const [currency, updateCurrency] = useState<Currency>("NGN");
 
   // Region-aware default, resolved after hydration to avoid SSR mismatches.
   useEffect(() => {
-    setCurrency(detectCurrency());
+    try {
+      const saved = localStorage.getItem("gedhe-currency");
+      updateCurrency(saved === "NGN" || saved === "GBP" ? saved : detectCurrency());
+    } catch {
+      updateCurrency(detectCurrency());
+    }
   }, []);
 
   // Restore the bag only in the browser. The hydration guard prevents the
@@ -130,16 +135,27 @@ export function StoreProvider({
   const volume = lines.reduce((n, l) => n + l.qty, 0);
   const subtotal = lines.reduce((n, l) => n + l.lineTotal, 0);
 
-  const addLine = useCallback((product: Product, option: string, qty: number) => {
-    const key = `${product.id}::${option}`;
-    setRawLines((prev) => {
-      const existing = prev.find((l) => l.key === key);
-      if (existing) {
-        return prev.map((l) => (l.key === key ? { ...l, qty: l.qty + qty } : l));
-      }
-      return [...prev, { key, productId: product.id, sku: buildSku(product, option), option, qty }];
-    });
-  }, []);
+  const addLine = useCallback(
+    (product: Product, option: string, qty: number) => {
+      const key = `${product.id}::${option}`;
+      const total = (rawLines.find((l) => l.key === key)?.qty ?? 0) + qty;
+      if (
+        !product.options.includes(option) ||
+        !Number.isInteger(qty) ||
+        qty < product.minQty ||
+        total > Math.min(5000, product.inventory?.[option] ?? 5000)
+      )
+        return false;
+      setRawLines((prev) => {
+        const existing = prev.find((l) => l.key === key);
+        return existing
+          ? prev.map((l) => (l.key === key ? { ...l, qty: l.qty + qty } : l))
+          : [...prev, { key, productId: product.id, sku: buildSku(product, option), option, qty }];
+      });
+      return true;
+    },
+    [rawLines],
+  );
 
   const updateQty = useCallback(
     (key: string, qty: number) => {
@@ -161,6 +177,14 @@ export function StoreProvider({
     [],
   );
 
+  const setCurrency = (value: Currency) => {
+    updateCurrency(value);
+    try {
+      localStorage.setItem("gedhe-currency", value);
+    } catch {
+      /* storage optional */
+    }
+  };
   const value: StoreValue = {
     products: catalog,
     filter,
