@@ -11,6 +11,8 @@ import { getSupabaseBrowserClient } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/forgot-password")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
+      { name: "referrer", content: "no-referrer" },
       { title: "Recover staff access — Gedhe Couture" },
       { name: "description", content: "Secure password recovery for Gedhe Couture staff." },
     ],

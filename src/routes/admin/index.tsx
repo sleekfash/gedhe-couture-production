@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -19,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 
+import { ProductStockEditor } from "@/components/product-stock-editor";
+import { ProductImageUpload } from "@/components/product-image-upload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +31,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createAdminProduct,
+  recordManualPayment,
+  reconcileOrderPayment,
   getAdminDashboard,
   getAdminOrder,
   listAdminProducts,
@@ -36,11 +40,14 @@ import {
   updateAdminProduct,
 } from "@/lib/admin.functions";
 import { formatMoney, resolveImage } from "@/data/catalog";
+import { volumeTiersSchema, gallerySchema } from "@/lib/product-validation";
 import { getSupabaseBrowserClient } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
+      { name: "referrer", content: "no-referrer" },
       { title: "Operations dashboard — Gedhe Couture" },
       {
         name: "description",
@@ -104,13 +111,26 @@ function AdminPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState({ page: 0, query: "", from: "", to: "" });
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextDashboard, nextProducts] = await Promise.all([loadDashboard(), loadProducts()]);
+      const [nextDashboard, nextProducts] = await Promise.all([
+        loadDashboard({
+          data: {
+            page: filters.page,
+            query: filters.query,
+            ...(filters.from ? { from: filters.from } : {}),
+            ...(filters.to ? { to: filters.to } : {}),
+          },
+        }),
+        loadProducts(),
+      ]);
       setDashboard(nextDashboard);
       setProducts(nextProducts);
       setError("");
@@ -123,7 +143,7 @@ function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [loadDashboard, loadProducts]);
+  }, [loadDashboard, loadProducts, filters]);
 
   useEffect(() => {
     void refresh();
@@ -135,15 +155,7 @@ function AdminPage() {
     await navigate({ to: "/login", replace: true });
   }
 
-  const visibleOrders = useMemo(
-    () =>
-      (dashboard?.orders ?? []).filter((order) =>
-        `${order.reference} ${order.customer_name} ${order.payment_status} ${order.fulfilment_status}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-      ),
-    [dashboard, query],
-  );
+  const visibleOrders = dashboard?.orders ?? [];
 
   if (loading)
     return (
@@ -194,7 +206,7 @@ function AdminPage() {
       <main className="mx-auto max-w-[1500px] px-5 py-8 sm:px-8">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-5">
           <div>
-            <p className="text-eyebrow text-muted-foreground">Today at Gedhe Couture</p>
+            <p className="text-eyebrow text-muted-foreground">All-time operations</p>
             <h2 className="mt-2 font-display text-4xl tracking-tight">
               Good work, keep it moving.
             </h2>
@@ -214,7 +226,11 @@ function AdminPage() {
             value={String(dashboard.metrics.newOrders)}
             icon={<Package />}
           />
-          <Metric label="Unpaid" value={String(dashboard.metrics.unpaid)} icon={<ShieldCheck />} />
+          <Metric
+            label="Awaiting payment"
+            value={String(dashboard.metrics.unpaid)}
+            icon={<ShieldCheck />}
+          />
           <Metric
             label="Fulfilment backlog"
             value={String(dashboard.metrics.backlog)}
@@ -246,15 +262,40 @@ function AdminPage() {
                     Payment, delivery, and customer coordination.
                   </p>
                 </div>
-                <div className="relative w-full sm:w-72">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <form
+                  className="flex flex-wrap gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setFilters({ page: 0, query, from, to });
+                  }}
+                >
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Reference or customer name"
+                      className="pl-9"
+                    />
+                  </div>
                   <Input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search orders"
-                    className="pl-9"
+                    aria-label="Orders from date"
+                    type="date"
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                    className="w-40"
                   />
-                </div>
+                  <Input
+                    aria-label="Orders to date"
+                    type="date"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                    className="w-40"
+                  />
+                  <Button type="submit" variant="outline">
+                    Apply filters
+                  </Button>
+                </form>
               </CardHeader>
               <CardContent className="p-0">
                 <OrdersTable
@@ -267,6 +308,27 @@ function AdminPage() {
                     }
                   }}
                 />
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4 text-sm">
+                  <span>
+                    {dashboard.totalMatching} matching orders · page {filters.page + 1}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={filters.page === 0}
+                      onClick={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={(filters.page + 1) * 50 >= dashboard.totalMatching}
+                      onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -382,7 +444,8 @@ function ExceptionsPanel({
         <CardHeader className="border-b border-border">
           <CardTitle>Orders needing attention</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Failed payments, amount mismatches, and abandoned card checkouts.
+            Latest 50 recorded payment failures and exceptions. Pending checkouts may need
+            verification.
           </p>
         </CardHeader>
         <CardContent className="p-0">
@@ -391,7 +454,7 @@ function ExceptionsPanel({
               <ShieldCheck className="mx-auto h-8 w-8 text-gold" />
               <p className="mt-3 font-display text-xl">Nothing to reconcile</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Every payment so far has matched its order.
+                No recorded exceptions. Pending payments still need confirmation.
               </p>
             </div>
           ) : (
@@ -430,7 +493,7 @@ function ExceptionsPanel({
         <CardHeader className="border-b border-border">
           <CardTitle>Rejected provider callbacks</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Events received but not applied, with the reason recorded.
+            Latest 50 rejected events, with the reason recorded.
           </p>
         </CardHeader>
         <CardContent className="p-0">
@@ -439,7 +502,7 @@ function ExceptionsPanel({
               <ShieldCheck className="mx-auto h-8 w-8 text-gold" />
               <p className="mt-3 font-display text-xl">No rejected callbacks</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                All verified payment events applied cleanly.
+                No recorded rejections. This does not verify every pending payment.
               </p>
             </div>
           ) : (
@@ -527,6 +590,24 @@ function OrderDrawer({
   onSaved: () => Promise<void>;
 }) {
   const update = useServerFn(updateAdminOrder);
+  const verify = useServerFn(reconcileOrderPayment);
+  const record = useServerFn(recordManualPayment);
+  const [receipt, setReceipt] = useState("");
+  const [receiptVerified, setReceiptVerified] = useState(false);
+  async function paymentAction(manual: boolean) {
+    setBusy(true);
+    try {
+      if (manual)
+        await record({ data: { id: detail.order.id, reference: receipt, verified: true } });
+      else await verify({ data: { id: detail.order.id } });
+      toast.success(manual ? "Verified bank payment recorded" : "Provider status checked");
+      await onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Payment verification failed");
+    } finally {
+      setBusy(false);
+    }
+  }
   const [status, setStatus] = useState(detail.order.fulfilment_status);
   const [notes, setNotes] = useState(detail.order.admin_notes);
   const [busy, setBusy] = useState(false);
@@ -611,6 +692,47 @@ function OrderDrawer({
             </span>
           </div>
         </section>
+        <section className="mt-7 space-y-3 border-t border-border pt-6">
+          <p className="text-eyebrow text-muted-foreground">Payment verification</p>
+          {detail.order.last_payment_error && (
+            <p className="text-sm text-destructive">{detail.order.last_payment_error}</p>
+          )}
+          {detail.order.payment_provider !== "whatsapp" ? (
+            <Button variant="outline" disabled={busy} onClick={() => void paymentAction(false)}>
+              Check status with payment provider
+            </Button>
+          ) : (
+            detail.order.payment_status !== "paid" &&
+            detail.order.fulfilment_status !== "cancelled" && (
+              <>
+                <Label htmlFor="receipt">Verified bank transaction reference</Label>
+                <Input
+                  id="receipt"
+                  value={receipt}
+                  onChange={(e) => setReceipt(e.target.value)}
+                  maxLength={160}
+                />
+                <label className="flex gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={receiptVerified}
+                    onChange={(e) => setReceiptVerified(e.target.checked)}
+                  />
+                  I checked the full amount in our bank account.
+                </label>
+                <Button
+                  disabled={busy || !receiptVerified || receipt.trim().length < 4}
+                  onClick={() => void paymentAction(true)}
+                >
+                  Record verified payment
+                </Button>
+              </>
+            )
+          )}
+          <p className="text-xs text-muted-foreground">
+            Confirm funds before dispatch. A customer screenshot alone is not bank verification.
+          </p>
+        </section>
         <section className="mt-7 grid gap-4 border-t border-border pt-6">
           <div>
             <Label htmlFor="fulfilment">Fulfilment status</Label>
@@ -658,12 +780,33 @@ function OrderDrawer({
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {event.provider} ·{" "}
-                    {event.processed_at ? "processed" : (event.failure_reason ?? "pending")}
+                    {event.failure_reason ?? (event.processed_at ? "processed" : "pending")}
                   </p>
                 </div>
               ))
             )}
           </div>
+        </section>
+        <section className="mt-7 border-t border-border pt-6">
+          <p className="text-eyebrow text-muted-foreground">Order activity</p>
+          <ul className="mt-3 space-y-3">
+            {detail.audit.length === 0 ? (
+              <li className="text-sm text-muted-foreground">No activity recorded yet.</li>
+            ) : (
+              detail.audit.map((event, i) => (
+                <li key={`${event.created_at}-${i}`} className="text-sm">
+                  <strong>{event.event_type.replaceAll("_", " ")}</strong>
+                  <p>
+                    {event.from_value && `${event.from_value} → `}
+                    {event.to_value} {event.note}
+                  </p>
+                  <time className="text-xs text-muted-foreground">
+                    {new Date(event.created_at).toLocaleString()}
+                  </time>
+                </li>
+              ))
+            )}
+          </ul>
         </section>
       </aside>
     </div>
@@ -744,9 +887,9 @@ function ProductEditor({
   const [form, setForm] = useState({
     ...product,
     optionsText: product.options.join(", "),
-    galleryText: JSON.stringify(product.gallery ?? [], null, 2),
-    volumeText: JSON.stringify(product.volume_tiers ?? [], null, 2),
   });
+  const [tiers, setTiers] = useState(() => volumeTiersSchema.parse(product.volume_tiers));
+  const [gallery, setGallery] = useState(() => gallerySchema.parse(product.gallery));
   const [busy, setBusy] = useState(false);
   function set(key: string, value: string | number | boolean) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -754,12 +897,12 @@ function ProductEditor({
   async function save() {
     setBusy(true);
     try {
-      const gallery = JSON.parse(form.galleryText);
-      const volume_tiers = JSON.parse(form.volumeText);
+      const volume_tiers = volumeTiersSchema.parse(tiers);
+      gallerySchema.parse(gallery);
       const data = {
         code: form.code,
         name: form.name,
-        category: form.category,
+        category: form.category as "Fabrics" | "Ready-to-Wear" | "Asoebi",
         variant: form.variant,
         description: form.description,
         pattern: form.pattern,
@@ -772,7 +915,7 @@ function ProductEditor({
         price_ngn: Number(form.price_ngn),
         price_gbp: Number(form.price_gbp),
         volume_tiers,
-        stock_status: form.stock_status,
+        stock_status: form.stock_status as "In Stock" | "Limited Stock" | "Inquire for Timeline",
         image_url: form.image_url,
         gallery,
         published: Boolean(form.published),
@@ -889,23 +1032,119 @@ function ProductEditor({
           />
           <Label htmlFor="published">Published in storefront</Label>
         </div>
-        <div className="sm:col-span-2">
-          <Label htmlFor="volume">Volume tiers JSON</Label>
-          <Textarea
-            id="volume"
-            value={form.volumeText}
-            onChange={(e) => set("volumeText", e.target.value)}
-            className="mt-2 min-h-28 font-mono text-xs"
+        <div className="sm:col-span-2 space-y-3">
+          <ProductImageUpload onUploaded={(url) => set("image_url", url)} />
+          <h3 className="font-semibold">Volume pricing</h3>
+          {tiers.map((tier, i) => (
+            <div key={i} className="grid gap-2 sm:grid-cols-5">
+              <Input
+                aria-label={`Tier ${i + 1} minimum quantity`}
+                type="number"
+                min="1"
+                value={tier.minQty}
+                onChange={(e) =>
+                  setTiers((v) =>
+                    v.map((t, j) => (j === i ? { ...t, minQty: Number(e.target.value) } : t)),
+                  )
+                }
+              />
+              <Input
+                aria-label={`Tier ${i + 1} label`}
+                placeholder="Label"
+                value={tier.label}
+                onChange={(e) =>
+                  setTiers((v) => v.map((t, j) => (j === i ? { ...t, label: e.target.value } : t)))
+                }
+              />
+              <Input
+                aria-label={`Tier ${i + 1} NGN price`}
+                type="number"
+                step="0.01"
+                value={tier.unitPriceNgn}
+                onChange={(e) =>
+                  setTiers((v) =>
+                    v.map((t, j) => (j === i ? { ...t, unitPriceNgn: Number(e.target.value) } : t)),
+                  )
+                }
+              />
+              <Input
+                aria-label={`Tier ${i + 1} GBP price`}
+                type="number"
+                step="0.01"
+                value={tier.unitPriceGbp}
+                onChange={(e) =>
+                  setTiers((v) =>
+                    v.map((t, j) => (j === i ? { ...t, unitPriceGbp: Number(e.target.value) } : t)),
+                  )
+                }
+              />
+              <Button
+                variant="outline"
+                onClick={() => setTiers((v) => v.filter((_, j) => j !== i))}
+              >
+                Remove tier
+              </Button>
+            </div>
+          ))}
+          <Button
+            variant="outline"
+            onClick={() =>
+              setTiers((v) => [
+                ...v,
+                {
+                  minQty: 1,
+                  label: "",
+                  unitPriceNgn: Number(form.price_ngn),
+                  unitPriceGbp: Number(form.price_gbp),
+                },
+              ])
+            }
+          >
+            Add volume tier
+          </Button>
+          <h3 className="font-semibold">Product gallery</h3>
+          {gallery.map((image, i) => (
+            <div key={i} className="grid gap-2 sm:grid-cols-3">
+              <Input
+                aria-label={`Gallery ${i + 1} image URL`}
+                value={image.src}
+                onChange={(e) =>
+                  setGallery((v) => v.map((g, j) => (j === i ? { ...g, src: e.target.value } : g)))
+                }
+              />
+              <Input
+                aria-label={`Gallery ${i + 1} caption`}
+                value={image.caption}
+                placeholder="Caption"
+                onChange={(e) =>
+                  setGallery((v) =>
+                    v.map((g, j) => (j === i ? { ...g, caption: e.target.value } : g)),
+                  )
+                }
+              />
+              <Button
+                variant="outline"
+                onClick={() => setGallery((v) => v.filter((_, j) => j !== i))}
+              >
+                Remove image
+              </Button>
+            </div>
+          ))}
+          <ProductImageUpload
+            onUploaded={(src) => setGallery((v) => [...v, { src, caption: "" }])}
           />
-        </div>
-        <div className="sm:col-span-2">
-          <Label htmlFor="gallery">Gallery JSON</Label>
-          <Textarea
-            id="gallery"
-            value={form.galleryText}
-            onChange={(e) => set("galleryText", e.target.value)}
-            className="mt-2 min-h-28 font-mono text-xs"
-          />
+          <Button
+            variant="outline"
+            onClick={() => setGallery((v) => [...v, { src: form.image_url, caption: "" }])}
+          >
+            Add gallery image by URL
+          </Button>
+          {!creating && <ProductStockEditor id={product.id} options={product.options} />}
+          {creating && (
+            <p className="text-xs text-muted-foreground">
+              Save this product first, then reopen it to enter stock quantities.
+            </p>
+          )}
         </div>
         <div className="sm:col-span-2">
           <Button onClick={() => void save()} disabled={busy}>

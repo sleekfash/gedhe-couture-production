@@ -11,6 +11,8 @@ import { getSupabaseBrowserClient } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
+      { name: "referrer", content: "no-referrer" },
       { title: "Choose a new password — Gedhe Couture" },
       {
         name: "description",

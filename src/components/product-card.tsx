@@ -26,10 +26,15 @@ export function ProductCard({ product }: { product: Product }) {
   const basePrice = currency === "NGN" ? product.base_price : product.price_gbp;
   const unitPrice = priceIn(product, qty, currency);
   const tierApplied = unitPrice < basePrice;
+  const available = product.inventory?.[option];
+  const stockUnavailable = available !== undefined && qty > available;
   const step = product.minQty >= 10 ? 5 : 1;
 
   function handleAdd() {
-    addLine(product, option, qty);
+    if (!addLine(product, option, qty)) {
+      toast.error("Check the option and available quantity in your bag.");
+      return;
+    }
     setJustAdded(true);
     window.setTimeout(() => setJustAdded(false), 1600);
     toast.success(`${product.name} added`, {
@@ -167,12 +172,15 @@ export function ProductCard({ product }: { product: Product }) {
 
           <button
             type="button"
+            disabled={stockUnavailable}
             onClick={handleAdd}
             className={`magnetic mt-4 flex w-full items-center justify-center gap-2 rounded-full px-6 py-3.5 text-[11px] font-bold uppercase tracking-[0.22em] ${
               justAdded ? "bg-success text-linen" : "bg-charcoal text-linen hover:bg-charcoal-deep"
             }`}
           >
-            {justAdded ? (
+            {stockUnavailable ? (
+              "Insufficient stock for this quantity"
+            ) : justAdded ? (
               <>
                 <Check className="h-4 w-4" /> Added to bag
               </>
@@ -181,7 +189,8 @@ export function ProductCard({ product }: { product: Product }) {
             )}
           </button>
           <p className="mt-2.5 text-center text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-            SKU {buildSku(product, option)}
+            {available !== undefined && <span>{available} available · </span>}SKU{" "}
+            {buildSku(product, option)}
           </p>
         </div>
       </div>

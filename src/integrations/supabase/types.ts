@@ -8,6 +8,28 @@ export type Database = {
   };
   public: {
     Tables: {
+      product_inventory: {
+        Row: { product_id: string; option: string; quantity: number; updated_at: string };
+        Insert: { product_id: string; option: string; quantity: number };
+        Update: { quantity?: number };
+        Relationships: [];
+      };
+      payment_attempts: {
+        Row: {
+          id: string;
+          order_id: string;
+          attempt: number;
+          provider: string;
+          status: string;
+          provider_reference: string | null;
+          checkout_url: string | null;
+          created_at: string;
+        };
+        Insert: { order_id: string; attempt: number; provider: string };
+        Update: { status?: string };
+        Relationships: [];
+      };
+
       order_audit_events: {
         Row: {
           actor_user_id: string | null;
@@ -279,6 +301,49 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      product_stock_availability: { Args: Record<string, never>; Returns: Json };
+      create_checkout_order: {
+        Args: {
+          p_request_id: string;
+          p_hash: string;
+          p_token_hash: string;
+          p_reference: string;
+          p_currency: string;
+          p_provider: string;
+          p_customer: Json;
+          p_items: Json;
+        };
+        Returns: Json;
+      };
+      begin_payment_attempt: { Args: { p_token_hash: string }; Returns: Json };
+      complete_payment_attempt: {
+        Args: { p_attempt_id: string; p_provider_reference: string; p_url: string };
+        Returns: Json;
+      };
+      apply_payment_event: {
+        Args: {
+          p_provider: string;
+          p_event_id: string;
+          p_event_type: string;
+          p_reference: string | null;
+          p_provider_reference: string | null;
+          p_outcome: string;
+          p_amount: number | null;
+          p_currency: string | null;
+          p_attempt_id?: string | null;
+        };
+        Returns: Json;
+      };
+      admin_order_metrics: { Args: { p_actor: string }; Returns: Json };
+      record_manual_payment: {
+        Args: { p_order_id: string; p_actor: string; p_reference: string };
+        Returns: Json;
+      };
+      set_product_inventory: {
+        Args: { p_actor: string; p_product_id: string; p_option: string; p_quantity: number };
+        Returns: Json;
+      };
+
       update_admin_order: {
         Args: {
           p_order_id: string;

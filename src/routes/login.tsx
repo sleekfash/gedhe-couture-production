@@ -11,6 +11,8 @@ import { getSupabaseBrowserClient } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
+      { name: "referrer", content: "no-referrer" },
       { title: "Admin sign in — Gedhe Couture" },
       { name: "description", content: "Secure staff sign in for Gedhe Couture order operations." },
       { property: "og:title", content: "Admin sign in — Gedhe Couture" },
